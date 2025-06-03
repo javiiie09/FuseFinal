@@ -161,10 +161,12 @@ static int minifs_readdir(const char *path, void *buf,
 }
 
 static int minifs_open(const char *path, struct fuse_file_info *fi) {
+    
     int idx = resolve_path(path);
     if (idx < 0) return -ENOENT;
     struct inode *n = get_inode(idx);
     if (n->mode & S_IFDIR) return -EISDIR;
+    if (!(n->mode & S_IRUSR)) return -EACCES;
     fi->fh = idx;
     return 0;
 }
@@ -177,6 +179,7 @@ static int minifs_create(const char *path, mode_t mode,
     if (pd < 0) return pd;
     struct inode *d = get_inode(pd);
     if (!(d->mode & S_IFDIR)) return -ENOTDIR;
+    if (!(d->mode & S_IWUSR)) return -EACCES;
     int in = alloc_inode();
     if (in < 0) return in;
     struct inode *n = get_inode(in);
@@ -255,7 +258,7 @@ static int minifs_read(const char *path, char *buf, size_t size,
     
     struct inode *n = get_inode(fi->fh);
     if (!(n->mode & S_IFREG))   return -EISDIR;
-    if (!(n->mode & S_IWUSR))   return -EACCES;
+    if (!(n->mode & S_IRUSR))   return -EACCES;
 
     size_t read = 0;
     while (read < size && offset + read < n->size) {
@@ -307,6 +310,7 @@ static int minifs_mkdir(const char *path, mode_t mode) {
     if (pd < 0) return pd;
     struct inode *parent = get_inode(pd);
     if (!(parent->mode & S_IFDIR)) return -ENOTDIR;
+    if (!(parent->mode & S_IWUSR)) return -EACCES;
 
     int in = alloc_inode();
     if (in < 0) return in;
