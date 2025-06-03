@@ -15,9 +15,31 @@
 #include "struct.h"
 
 int main(int argc, char *argv[]) {
-    FILE *f = fopen(argv[1], "w+b");
+    if (argc < 2) {
+        fprintf(stderr, "Uso: %s <archivo_imagen>\n", argv[0]);
+        return 1;
+    }
+    const char *imagen = argv[1];
+
+    // Abrir y medir tamaño de la imagen
+    int fd = open(imagen, O_RDWR);
+    if (fd < 0) {
+        perror("open imagen");
+        return 1;
+    }
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        perror("fstat");
+        close(fd);
+        return 1;
+    }
+    off_t img_size = st.st_size;
+    uint32_t total_blocks = img_size / BLOCK_SIZE;
+
+    FILE *f = fdopen(fd, "r+b");
     if (!f) {
         perror("fdopen");
+        close(fd);
         return 1;
     }
 
@@ -30,6 +52,14 @@ int main(int argc, char *argv[]) {
     sb.free_blocks      = NUM_BLOCKS - FIRST_DATA_BLOCK - 1; // -1 por superbloque
     sb.free_inodes      = NUM_INODES - 1;                    // inodo 0 usado por root
     strncpy(sb.fs_name, "MiniEXT2", sizeof(sb.fs_name));
+
+    for (int i = 0; i <= 197; i++) {
+        sb.padding2[i / 32] |= (1 << (i % 32)); // Reservamos bloques de datos
+    }
+
+    for (int i = 0; i <= 31; i++) {
+        sb.padding[0] |= (1 << (0 % 32)); // Reservamos inodos
+    }
 
     // Escribimos el superbloque al inicio
     fseek(f, 0, SEEK_SET);
@@ -47,10 +77,15 @@ int main(int argc, char *argv[]) {
     root.size        = 2 * sizeof(struct dir_entry);
     root.blocks      = 1;
     root.links_count = 2;
+    root.atime       = time(NULL);
     root.ctime       = time(NULL);
     root.mtime       = time(NULL);
-    root.direct[0]   = FIRST_DATA_BLOCK;
+    root.direct[0]   = FIRST_DATA_BLOCK; // Primer bloque de datos
     fwrite(&root, sizeof(root), 1, f);
+
+    for(int i = 1; i < sizeof(root.padding); i++) {
+        root.padding[i] = 0; // Rellenamos padding con ceros
+    }
 
     // Rellenamos el resto de inodos con ceros
     struct inode empty = {0};
@@ -74,7 +109,9 @@ int main(int argc, char *argv[]) {
 
     free(block);
     fclose(f);
-    printf("✅ FS inicializado: %u bloques, %d inodos, datos desde bloque %d.\n",
+    printf("Tabla de inodos escrita en %ld.\n", inode_table_start);
+    printf("Bloque de datos del root inicializado en bloque %ld.\n", data_block_offset);
+    printf("✅ FS inicializado: %u bloques, %d inodos, datos desde bloque %ld.\n",
            NUM_BLOCKS, NUM_INODES, FIRST_DATA_BLOCK);
     return 0;
 }
