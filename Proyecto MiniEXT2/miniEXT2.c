@@ -29,54 +29,24 @@ static int resolve_path(const char *path) {
     while (tok) {
         struct inode *d = get_inode(curr);
         if (!(d->mode & S_IFDIR)) return -ENOENT;
-        int n = d->size / sizeof(struct dir_entry);
-        struct dir_entry *e = get_block(d->direct[0]);
         int found = 0;
-        for (int i = 0; i < n; i++) {
-            if (e[i].inode && strcmp(e[i].name, tok) == 0) {
-                curr = e[i].inode;
-                found = 1;
-                break;
+        int entries_per_block = sb->block_size / sizeof(struct dir_entry);
+        for (int blk = 0; blk < DIRECT_POINTERS; blk++) {
+            if (!d->direct[blk]) continue;
+            struct dir_entry *e = get_block(d->direct[blk]);
+            for (int i = 0; i < entries_per_block; i++) {
+                if (e[i].inode && strcmp(e[i].name, tok) == 0) {
+                    curr = e[i].inode;
+                    found = 1;
+                    break;
+                }
             }
+            if (found) break;
         }
         if (!found) return -ENOENT;
         tok = strtok(NULL, "/");
     }
     return curr;
-}
-
-static int add_entry(int pd, const char *name, int child) {
-    struct inode *d = get_inode(pd);
-    struct dir_entry *e = get_block(d->direct[0]);
-    int max = sb->block_size / sizeof(*e);
-    for (int i = 0; i < max; i++) {
-        if (!e[i].inode) {
-            e[i].inode = child;
-            strncpy(e[i].name, name, MAX_NAME-1);
-            e[i].name[MAX_NAME-1] = '\0';
-            d->size += sizeof(*e);
-            d->mtime = time(NULL);
-            msync(e, sb->block_size, MS_SYNC);
-            return 0;
-        }
-    }
-    return -ENOSPC;
-}
-
-static int remove_entry(int pd, const char *name) {
-    struct inode *d = get_inode(pd);
-    struct dir_entry *e = get_block(d->direct[0]);
-    int max = sb->block_size / sizeof(*e);
-    for (int i = 0; i < max; i++) {
-        if (e[i].inode && strcmp(e[i].name, name) == 0) {
-            e[i].inode = 0;
-            e[i].name[0] = '\0';
-            d->mtime = time(NULL);
-            msync(e, sb->block_size, MS_SYNC);
-            return 0;
-        }
-    }
-    return -ENOENT;
 }
 
 static int alloc_block() {
@@ -118,6 +88,58 @@ static int alloc_inode() {
     return -ENOSPC;
 }
 
+static int add_entry(int pd, const char *name, int child) {
+    struct inode *d = get_inode(pd);
+    int entries_per_block = sb->block_size / sizeof(struct dir_entry);
+
+    for (int blk = 0; blk < DIRECT_POINTERS; blk++) {
+        // Si el bloque directo no está asignado, asígnalo
+        if (!d->direct[blk]) {
+            int new_block = alloc_block();
+            if (new_block < 0) return -ENOSPC;
+            d->direct[blk] = new_block;
+            d->blocks++;
+            void *blk_ptr = get_block(new_block);
+            memset(blk_ptr, 0, sb->block_size);
+        }
+        struct dir_entry *e = get_block(d->direct[blk]);
+        for (int i = 0; i < entries_per_block; i++) {
+            if (!e[i].inode) {
+                e[i].inode = child;
+                strncpy(e[i].name, name, MAX_NAME-1);
+                e[i].name[MAX_NAME-1] = '\0';
+                d->size += sizeof(*e);
+                d->mtime = time(NULL);
+                msync(e, sb->block_size, MS_SYNC);
+                msync(d, sizeof(*d), MS_SYNC);
+                return 0;
+            }
+        }
+    }
+    return -ENOSPC;
+}
+
+static int remove_entry(int pd, const char *name) {
+    struct inode *d = get_inode(pd);
+    int entries_per_block = sb->block_size / sizeof(struct dir_entry);
+
+    for (int blk = 0; blk < DIRECT_POINTERS; blk++) {
+        struct dir_entry *e = get_block(d->direct[blk]);
+        for (int i = 0; i < entries_per_block; i++) {
+            if (e[i].inode && strcmp(e[i].name, name) == 0) {
+                e[i].inode = 0;
+                e[i].name[0] = '\0';
+                d->size -= sizeof(*e);
+                d->mtime = time(NULL);
+                msync(e, sb->block_size, MS_SYNC);
+                msync(d, sizeof(*d), MS_SYNC);
+                return 0;
+            }
+        }
+    }
+    return -ENOENT;
+}
+
 // FUSE handlers
 
 static int minifs_getattr(const char *path, struct stat *st) {
@@ -148,13 +170,16 @@ static int minifs_readdir(const char *path, void *buf,
     filler(buf, ".",  NULL, 0);
     filler(buf, "..", NULL, 0);
 
-    struct dir_entry *e = get_block(d->direct[0]);
-    int n = d->size / sizeof(struct dir_entry);
-    for (int i = 0; i < n; i++) {
-        if (e[i].inode &&
-            strcmp(e[i].name, ".") &&
-            strcmp(e[i].name, "..")) {
-            filler(buf, e[i].name, NULL, 0);
+    int entries_per_block = sb->block_size / sizeof(struct dir_entry);
+    for (int blk = 0; blk < DIRECT_POINTERS; blk++) {
+        if (!d->direct[blk]) continue;
+        struct dir_entry *e = get_block(d->direct[blk]);
+        for (int i = 0; i < entries_per_block; i++) {
+            if (e[i].inode &&
+                strcmp(e[i].name, ".") &&
+                strcmp(e[i].name, "..")) {
+                filler(buf, e[i].name, NULL, 0);
+            }
         }
     }
     return 0;
@@ -217,6 +242,7 @@ static int minifs_truncate(const char *path, off_t size) {
                 memset(get_block(n->direct[i]), 0, sb->block_size);
                 sb->free_blocks++;
                 n->direct[i] = 0;
+                n->blocks--;
             }
         }
     }
@@ -372,22 +398,36 @@ static int minifs_rmdir(const char *path) {
     struct inode *n = get_inode(idx);
     if (!(n->mode & S_IFDIR)) return -ENOTDIR;
 
-    struct dir_entry *e = get_block(n->direct[0]);
-    int nents = sb->block_size / sizeof(struct dir_entry);
-    for (int i = 0; i < nents; i++) {
-        if (!strcmp(e[i].name, ".") || !strcmp(e[i].name, ".."))
-            continue;
-        if (e[i].inode != 0)
-            return -ENOTEMPTY;
+    int entries_per_block = sb->block_size / sizeof(struct dir_entry);
+    // Verifica que todos los bloques directos estén vacíos (excepto "." y "..")
+    for (int blk = 0; blk < DIRECT_POINTERS; blk++) {
+        if (!n->direct[blk]) continue;
+        struct dir_entry *e = get_block(n->direct[blk]);
+        for (int i = 0; i < entries_per_block; i++) {
+            if (!strcmp(e[i].name, ".") || !strcmp(e[i].name, ".."))
+                continue;
+            if (e[i].inode != 0)
+                return -ENOTEMPTY;
+        }
     }
 
-    memset(get_block(n->direct[0]), 0, sb->block_size);
-    sb->free_blocks++;
+    int rem = remove_entry(pd, bn);
+    if (rem < 0) return rem;
+
+    // Limpia todos los bloques directos asignados
+    for (int blk = 0; blk < DIRECT_POINTERS; blk++) {
+        if (n->direct[blk]) {
+            memset(get_block(n->direct[blk]), 0, sb->block_size);
+            sb->free_blocks++;
+            n->direct[blk] = 0;
+            n->blocks--;
+        }
+    }
     memset(n, 0, sizeof(*n));
     sb->free_inodes++;
 
     get_inode(pd)->links_count--;
-    return remove_entry(pd, bn);
+    return 0;
 }
 
 static int minifs_rename(const char *from, const char *to) {
