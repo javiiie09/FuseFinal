@@ -1,0 +1,11 @@
+1. Creación de imagen con dd para su posterior formateo. Antes la propia aplicación creaba la imagen con un tamaño fijo.
+2. Se ha solucionado un problema al formatear, sobreescribíamos la table de inodos con el inicio de los bloques de datos.
+    Únicamente teníamos 33, ahora tenemos los 1024 inodos predefinidos.
+3. Arreglo en la función truncate. Antes solo era capaz de truncar a 0, ahora puede truncar a un tamaño mayor.
+4. Arreglo en las funciones add_entry, remove_entry, minifs_readdir y minifs_rmdir para hacer uso de todos los punteros directos.
+    Hemos pasado de poder tener únicamente 16 referencias a carpetas a 192.
+5. Se han arreglado fallos en los permisos que permitia crear un fichero dentro de una carpeta en la que no se tenía permisos.
+
+
+6. Se intentó volver a tratar de implementar los punteros indirectos sin exito.
+7. Se intentó modificar la estructura para hacer compatible nuestro proyecto con el de nuestros compañeros sin exito.
