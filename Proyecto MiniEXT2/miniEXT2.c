@@ -200,23 +200,43 @@ static int minifs_create(const char *path, mode_t mode,
 static int minifs_truncate(const char *path, off_t size) {
     int idx = resolve_path(path);
     if (idx < 0) return idx;
+
     struct inode *n = get_inode(idx);
-
-    if (n->mode & S_IFDIR)   return -EISDIR;
+    if (n->mode & S_IFDIR)    return -EISDIR;
     if (!(n->mode & S_IWUSR)) return -EACCES;
-    if (size != 0)            return -EINVAL;
+    if (size < 0)             return -EINVAL;
 
-    // Liberar todos los bloques directos usados
-    for (int i = 0; i < DIRECT_POINTERS; i++) {
-        if (n->direct[i]) {
-            memset(get_block(n->direct[i]), 0, sb->block_size);
-            sb->free_blocks++;
-            n->direct[i] = 0;
+    off_t old_size = n->size;
+    int old_blocks = (old_size + sb->block_size - 1) / sb->block_size;
+    int new_blocks = (size     + sb->block_size - 1) / sb->block_size;
+
+    // CASO 1: Reducción de tamaño
+    if (size < old_size) {
+        for (int i = new_blocks; i < old_blocks && i < DIRECT_POINTERS; i++) {
+            if (n->direct[i]) {
+                memset(get_block(n->direct[i]), 0, sb->block_size);
+                sb->free_blocks++;
+                n->direct[i] = 0;
+            }
         }
     }
-    n->blocks = 0;
-    n->size  = 0;
-    n->mtime = time(NULL);    // ← actualiza tiempo de modificación
+
+    // CASO 2: Ampliación de tamaño
+    else if (size > old_size) {
+        for (int i = old_blocks; i < new_blocks && i < DIRECT_POINTERS; i++) {
+            int new_block = alloc_block();
+            if (new_block < 0) return -ENOSPC;
+            n->direct[i] = new_block;
+            memset(get_block(new_block), 0, sb->block_size);
+        }
+    }
+
+    n->size   = size;
+    n->blocks = new_blocks;
+    n->mtime  = time(NULL);
+    msync(n, sizeof(*n), MS_SYNC);
+    msync(sb, sizeof(*sb), MS_SYNC);
+
     return 0;
 }
 
@@ -318,6 +338,7 @@ static int minifs_mkdir(const char *path, mode_t mode) {
     if (b < 0) return b;
 
     struct inode *n = get_inode(in);
+    printf("Creating directory %s with inode %d and block %d\n", path, in, b);
     memset(n, 0, sizeof(*n));
     n->mode        = S_IFDIR | (mode & 0777);
     n->uid         = getuid();

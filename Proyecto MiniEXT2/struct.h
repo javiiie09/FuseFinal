@@ -33,10 +33,7 @@ struct superblock {
     uint32_t    free_inodes;
     uint32_t    first_data_block;
     char        fs_name[8];
-
-    int         padding[NUM_INODES / 32];
-    int         padding2[NUM_BLOCKS / 32];
-}; // 36
+};
 
 struct inode {
     uint16_t    mode, uid, gid;
@@ -47,10 +44,8 @@ struct inode {
     uint32_t    ctime;
     uint32_t    mtime;
     uint16_t    links_count;
-    char        padding[20];
-}; // 76
+};
 
-int s = sizeof(struct inode);
 
 struct dir_entry {
     uint32_t    inode;

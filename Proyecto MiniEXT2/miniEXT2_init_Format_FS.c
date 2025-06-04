@@ -46,20 +46,12 @@ int main(int argc, char *argv[]) {
     // Preparamos el superbloque
     struct superblock sb = {0};
     sb.total_blocks     = NUM_BLOCKS;
-    sb.total_inodes     = NUM_INODES;
     sb.block_size       = BLOCK_SIZE;
-    sb.first_data_block = FIRST_DATA_BLOCK;
+    sb.total_inodes     = NUM_INODES;
     sb.free_blocks      = NUM_BLOCKS - FIRST_DATA_BLOCK - 1; // -1 por superbloque
     sb.free_inodes      = NUM_INODES - 1;                    // inodo 0 usado por root
+    sb.first_data_block = FIRST_DATA_BLOCK;
     strncpy(sb.fs_name, "MiniEXT2", sizeof(sb.fs_name));
-
-    for (int i = 0; i <= 197; i++) {
-        sb.padding2[i / 32] |= (1 << (i % 32)); // Reservamos bloques de datos
-    }
-
-    for (int i = 0; i <= 31; i++) {
-        sb.padding[0] |= (1 << (0 % 32)); // Reservamos inodos
-    }
 
     // Escribimos el superbloque al inicio
     fseek(f, 0, SEEK_SET);
@@ -71,21 +63,20 @@ int main(int argc, char *argv[]) {
 
     // Inodo 0: directorio raíz
     struct inode root = {0};
-    root.mode        = 0040755; // S_IFDIR | 0755
     root.uid         = 0;
     root.gid         = 0;
+    root.mode        = 0040755; // S_IFDIR | 0755
+    
     root.size        = 2 * sizeof(struct dir_entry);
     root.blocks      = 1;
-    root.links_count = 2;
+
+    root.direct[0]   = FIRST_DATA_BLOCK; // Primer bloque de datos
     root.atime       = time(NULL);
     root.ctime       = time(NULL);
     root.mtime       = time(NULL);
-    root.direct[0]   = FIRST_DATA_BLOCK; // Primer bloque de datos
+    root.links_count = 2;
     fwrite(&root, sizeof(root), 1, f);
 
-    for(int i = 1; i < sizeof(root.padding); i++) {
-        root.padding[i] = 0; // Rellenamos padding con ceros
-    }
 
     // Rellenamos el resto de inodos con ceros
     struct inode empty = {0};
