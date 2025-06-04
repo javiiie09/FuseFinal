@@ -45,10 +45,10 @@ int main(int argc, char *argv[]) {
 
     // Preparamos el superbloque
     struct superblock sb = {0};
-    sb.total_blocks     = NUM_BLOCKS;
+    sb.total_blocks     = total_blocks;
     sb.block_size       = BLOCK_SIZE;
     sb.total_inodes     = NUM_INODES;
-    sb.free_blocks      = NUM_BLOCKS - FIRST_DATA_BLOCK - 1; // -1 por superbloque
+    sb.free_blocks      = total_blocks - FIRST_DATA_BLOCK - 1; // -1 por superbloque
     sb.free_inodes      = NUM_INODES - 1;                    // inodo 0 usado por root
     sb.first_data_block = FIRST_DATA_BLOCK;
     strncpy(sb.fs_name, "MiniEXT2", sizeof(sb.fs_name));
@@ -103,6 +103,6 @@ int main(int argc, char *argv[]) {
     printf("Tabla de inodos escrita en %ld.\n", inode_table_start);
     printf("Bloque de datos del root inicializado en bloque %ld.\n", data_block_offset);
     printf("✅ FS inicializado: %u bloques, %d inodos, datos desde bloque %ld.\n",
-           NUM_BLOCKS, NUM_INODES, FIRST_DATA_BLOCK);
+           total_blocks, NUM_INODES, FIRST_DATA_BLOCK);
     return 0;
 }
