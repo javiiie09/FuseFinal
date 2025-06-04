@@ -44,8 +44,11 @@ struct inode {
     uint32_t    ctime;
     uint32_t    mtime;
     uint16_t    links_count;
+
+    char        padding[52]; // Alineación a 128 bytes
 };
 
+int s = sizeof(struct inode);
 
 struct dir_entry {
     uint32_t    inode;

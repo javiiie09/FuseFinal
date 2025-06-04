@@ -100,9 +100,9 @@ int main(int argc, char *argv[]) {
 
     free(block);
     fclose(f);
-    printf("Tabla de inodos escrita en %ld.\n", inode_table_start);
-    printf("Bloque de datos del root inicializado en bloque %ld.\n", data_block_offset);
-    printf("✅ FS inicializado: %u bloques, %d inodos, datos desde bloque %ld.\n",
-           total_blocks, NUM_INODES, FIRST_DATA_BLOCK);
+    printf("Tabla de inodos escrita en el byte %ld, bloque %ld.\n", inode_table_start, inode_table_start / BLOCK_SIZE);
+    printf("Bloque de datos del root inicializado en el byte %ld, bloque %ld.\n", data_block_offset, data_block_offset / BLOCK_SIZE);
+    printf("✅ FS inicializado: %u bloques, %d inodos, datos desde bloque %ld, tamaño de inodo %ld, tamaño de bloque %d.\n",
+           total_blocks, NUM_INODES, FIRST_DATA_BLOCK, sizeof(struct inode), BLOCK_SIZE);
     return 0;
 }
